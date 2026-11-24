@@ -24,7 +24,7 @@ The application runs on an Ubuntu EC2 instance, with Nginx acting as a reverse p
 | IAM Role | `notes-ec2-role` |
 | Database | `campus_notes` |
 | Database User | `notes_app` |
-| S3 Bucket | Your configured project bucket |
+| S3 Bucket | campus-notes-edom-2026 |
 
 ### Architecture Flow
 
