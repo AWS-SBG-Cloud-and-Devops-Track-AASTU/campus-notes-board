@@ -1,140 +1,201 @@
 # Campus Notes Board
 
-## 1. Overview and architecture diagram
+## 1. Overview and Architecture Diagram
 
-Campus Notes Board is a web application that allows students to upload, view, and download course-related PDF notes. The application runs on an Amazon EC2 instance, uses Amazon RDS (MySQL) to store note information and metadata, and uses Amazon S3 to store the uploaded PDF files. An IAM role grants the EC2 instance permission to access S3 without storing AWS access keys on the server.
+Campus Notes Board is a web application designed to help students upload, view, and download course-related PDF notes. It uses Amazon EC2 to host the application, Amazon RDS for MySQL to store note information and metadata, and Amazon S3 to store uploaded PDF documents.
 
-### Architecture
+The application runs on an Ubuntu EC2 instance, with Nginx acting as a reverse proxy. The EC2 instance uses an IAM role to access S3 securely without requiring permanent AWS access keys on the server.
 
-```mermaid
-flowchart TD
-    U[Student / Web Browser] -->|HTTP| N[Nginx]
-    N -->|Reverse Proxy| A[Campus Notes Board App]
-    A -->|SQL / TCP 3306| R[(Amazon RDS - MySQL)]
-    A -->|Upload / Download PDFs| S[Amazon S3 Bucket]
-    A -->|Temporary AWS credentials| I[IAM Role: notes-ec2-role]
-    I -->|S3 permissions| S
-    E[Amazon EC2: campus-notes-app] --- A
-    M[Amazon CloudWatch] -. Monitoring .-> E
-    T[AWS CloudTrail] -. Audit Events .-> E
-```
+### Architecture Diagram
 
-### Main AWS resources
+![Campus Notes Board Architecture](screenshots/architecture.png)
 
-| Resource | Name / purpose |
+### AWS Resources
+
+| Resource | Name / Configuration |
 |---|---|
-| Region | `eu-north-1` (Europe – Stockholm) |
+| AWS Region | Europe (Stockholm) – `eu-north-1` |
 | VPC | `campus-notes-vpc` |
 | Internet Gateway | `campus-notes-igw` |
-| EC2 instance | `campus-notes-app` |
-| EC2 security group | `app-sg` |
-| RDS database | `campus-notes-db` |
-| RDS security group | `db-sg` |
-| IAM role | `notes-ec2-role` |
-| S3 bucket | `YOUR_BUCKET_NAME` |
+| EC2 Instance | `campus-notes-app` |
+| EC2 Security Group | `app-sg` |
+| RDS Instance | `campus-notes-db` |
+| RDS Security Group | `db-sg` |
+| IAM Role | `notes-ec2-role` |
 | Database | `campus_notes` |
+| Database User | `notes_app` |
+| S3 Bucket | Your configured project bucket |
 
-Architecture diagram image: `screenshots/architecture.png` (add this file if you export your diagram as an image).
+### Architecture Flow
+
+1. Students access the application through a web browser.
+2. Nginx receives incoming HTTP requests and forwards them to the application.
+3. The application communicates with Amazon RDS to store and retrieve note metadata.
+4. PDF files are uploaded to and downloaded from Amazon S3.
+5. The EC2 instance uses its attached IAM role to access S3.
+6. Amazon CloudWatch monitors selected infrastructure metrics.
+7. AWS CloudTrail records account activity and management events.
 
 ## 2. Prerequisites
 
-To reproduce this deployment, you need:
+The following are required to deploy and operate the project:
 
-- An AWS account or an authorized AWS Skill Builder project environment.
+### AWS Requirements
+
+- An AWS account or authorized AWS Skill Builder project environment.
 - Access to the AWS Management Console.
+- Permissions to create and manage VPC, EC2, RDS, S3, IAM, CloudWatch, and CloudTrail resources.
 - AWS Region: `eu-north-1` (Europe – Stockholm).
-- An IAM identity with permission to create and manage the required VPC, EC2, RDS, S3, IAM, CloudWatch, and CloudTrail resources.
-- An Ubuntu EC2 instance.
-- Session Manager access to the EC2 instance, or another authorized administrative connection method.
-- A terminal with SSH/client tools where required.
-- Git and a GitHub account for storing the project source code and documentation.
-- MySQL client for testing database connectivity.
-- A PDF file for testing uploads and downloads.
 
-**Important:** Use an IAM identity with only the permissions required for the deployment. Do not use root credentials for routine work.
+### Software and Tools
 
-## 3. Deployment steps
+- Ubuntu Linux EC2 instance.
+- Git and GitHub account.
+- MySQL client for database connectivity testing.
+- Nginx web server.
+- Application runtime and dependencies required by the starter project.
+- AWS Systems Manager Session Manager or another authorized method of connecting to the EC2 instance.
+- A PDF document for testing uploads and downloads.
 
-The following describes the deployment sequence. Replace example values and commands with the exact values used in your working environment.
+### Repository
 
-### Step 1: Create the network infrastructure
+GitHub Repository:
 
-1. Create the VPC named `campus-notes-vpc`.
-2. Create the public and private subnets.
-3. Attach the Internet Gateway named `campus-notes-igw`.
-4. Configure the public route table to route internet-bound traffic through the Internet Gateway.
-5. Keep the private route table without a direct Internet Gateway route.
-6. Associate the route tables with their intended subnets.
-7. Create the security groups `app-sg` and `db-sg`.
+https://github.com/AWS-SBG-Cloud-and-Devops-Track-AASTU/campus-notes-board
 
-See [`docs/network.md`](docs/network.md) for the network design and subnet details.
+## 3. Deployment Steps
 
-### Step 2: Launch the EC2 instance
+The deployment follows the sequence below, starting with network infrastructure and ending with a running web application.
 
-Launch the Ubuntu EC2 instance named `campus-notes-app`.
+### Step 1: Create the VPC Infrastructure
 
-- Select the intended VPC and public subnet.
-- Attach the `app-sg` security group.
-- Attach the IAM instance role `notes-ec2-role`.
-- Enable the access method used for administration, such as AWS Systems Manager Session Manager.
-- Confirm that the instance is running and can be reached through the selected access method.
+Create the VPC named `campus-notes-vpc`.
 
-### Step 3: Prepare the EC2 environment
+The network infrastructure includes:
 
-Connect to the instance through Session Manager.
+- One public subnet for the application EC2 instance.
+- Two private subnets intended for private resources and the RDS subnet group.
+- An Internet Gateway named `campus-notes-igw`.
+- A public route table with an internet route through the Internet Gateway.
+- A private route table for private subnet communication.
 
-Update the package index and install the software required by the application. For an Ubuntu instance, the general commands are:
+Configure the route table associations and security groups according to the network design.
+
+Refer to [`docs/network.md`](docs/network.md) for the network configuration and subnet details.
+
+### Step 2: Create Security Groups
+
+Create the following security groups:
+
+**Application Security Group (`app-sg`)**
+
+Controls inbound and outbound traffic for the EC2 instance.
+
+Configure the required web access and the administration method used to connect to the instance.
+
+**Database Security Group (`db-sg`)**
+
+Controls access to the RDS database.
+
+The intended inbound rule allows MySQL traffic from the application security group:
+
+| Type | Protocol | Port | Source |
+|---|---|---|---|
+| MySQL/Aurora | TCP | 3306 | `app-sg` |
+
+The database should not be directly accessible from the public internet.
+
+### Step 3: Launch the EC2 Instance
+
+Launch an Ubuntu EC2 instance with the following configuration:
+
+- Instance name: `campus-notes-app`
+- Operating system: Ubuntu Linux
+- VPC: `campus-notes-vpc`
+- Subnet: Public subnet
+- Security group: `app-sg`
+- IAM instance profile: `notes-ec2-role`
+
+Ensure that the instance is running and that the selected administration method works.
+
+### Step 4: Prepare the EC2 Environment
+
+Connect to the EC2 instance through AWS Systems Manager Session Manager.
+
+Update the system packages:
 
 ```bash
 sudo apt update
 sudo apt upgrade -y
 ```
 
-Install the dependencies required by the application, including the appropriate runtime, MySQL client, Git, and Nginx.
+Install the required software:
 
 ```bash
 sudo apt install -y git nginx mysql-client
 ```
 
-Install any additional application-specific dependencies according to the starter project's instructions.
+Install the additional runtime and application dependencies required by the starter project.
 
-### Step 4: Deploy the application
+### Step 5: Clone the Application Repository
 
 Clone the project repository:
 
 ```bash
-git clone YOUR_GITHUB_REPOSITORY_URL
+git clone https://github.com/AWS-SBG-Cloud-and-Devops-Track-AASTU/campus-notes-board.git
+```
+
+Navigate into the project directory:
+
+```bash
 cd campus-notes-board
 ```
 
-Install the application's dependencies using the package manager specified by the project.
+Install the application dependencies using the package manager and instructions provided by the project.
 
-Configure the application environment variables before starting the service.
+### Step 6: Configure Environment Variables
 
-### Step 5: Configure the application service
+Configure the application environment variables required for the database and S3 connection.
 
-Create a dedicated Linux service user for the application rather than running it as root.
+Store sensitive configuration in an environment file outside the Git repository.
 
-Create and configure a systemd service named `notes` using the application's actual startup command and working directory.
+Example location:
 
-After creating the service:
+```text
+/etc/notes/notes.env
+```
+
+Never commit passwords, secret keys, or other sensitive configuration values to GitHub.
+
+### Step 7: Configure the Application Service
+
+Create a dedicated Linux service user for the application.
+
+Configure a systemd service named `notes` using the correct application startup command and working directory.
+
+Reload systemd and start the service:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable notes
 sudo systemctl start notes
+```
+
+Check the service status:
+
+```bash
 sudo systemctl status notes --no-pager
 ```
 
-Check application logs:
+Check the application logs:
 
 ```bash
 sudo journalctl -u notes -n 100 --no-pager
 ```
 
-### Step 6: Configure Nginx
+### Step 8: Configure Nginx
 
-Configure Nginx as a reverse proxy so that incoming HTTP requests are forwarded to the application process running locally on the EC2 instance.
+Configure Nginx as a reverse proxy to forward incoming HTTP requests to the application running locally on the EC2 instance.
 
 Test the Nginx configuration:
 
@@ -142,14 +203,14 @@ Test the Nginx configuration:
 sudo nginx -t
 ```
 
-Restart Nginx:
+Restart and enable Nginx:
 
 ```bash
 sudo systemctl restart nginx
 sudo systemctl enable nginx
 ```
 
-### Step 7: Verify the deployment
+### Step 9: Verify the Deployment
 
 Check the application's health endpoint:
 
@@ -157,220 +218,256 @@ Check the application's health endpoint:
 curl http://localhost/health
 ```
 
-The application should report the status of its application process, database connection, and S3 access.
+The endpoint should report the application and its required service connections, including the database and S3, according to the application's implementation.
 
-Open the EC2 instance's public address in a browser to test the application.
+Open the EC2 instance's public IP address in a browser to access the Campus Notes Board application.
 
-## 4. Configuration variables
+## 4. Configuration Variables
 
-The following variables are used to configure the application. Actual values and secrets are not stored in this README.
+The application uses environment variables to configure its database and S3 connections.
 
 | Variable | Meaning |
 |---|---|
-| `DB_HOST` | RDS endpoint |
-| `DB_PORT` | Database port |
+| `DB_HOST` | RDS database endpoint |
+| `DB_PORT` | MySQL database port |
 | `DB_NAME` | Database name |
-| `DB_USER` | Application database user |
+| `DB_USER` | Application database username |
 | `DB_PASSWORD` | Password for the application database user |
-| `S3_BUCKET` | Bucket used to store PDF files |
+| `S3_BUCKET` | S3 bucket used to store PDF documents |
 | `AWS_REGION` | AWS Region of the S3 bucket |
 | `MAX_UPLOAD_MB` | Maximum accepted PDF upload size (optional) |
 
-### Environment file
+### Environment File Security
 
-The environment file should be stored outside the Git repository and should not be publicly accessible.
+The environment file should be stored outside the project repository.
 
-Example recommended location:
+Example:
 
 ```text
 /etc/notes/notes.env
 ```
 
-The file should be owned by the appropriate administrative account and readable only by root and the application service account.
+The file should be owned by the appropriate administrative account and readable only by the application service account and root.
 
-Example permissions:
+Example permissions, assuming the service group is named `notes`:
 
 ```bash
 sudo chown root:notes /etc/notes/notes.env
 sudo chmod 640 /etc/notes/notes.env
 ```
 
-These commands assume that the application service user is named `notes`. Adjust the owner and group to match the actual user configured on your EC2 instance.
+The actual owner and group should match the Linux user and group configured for the application.
 
-Never commit the environment file, database password, AWS credentials, or other secrets to GitHub.
+Sensitive values must never be committed to GitHub.
 
-## 5. Database and S3 setup
+## 5. Database and S3 Setup
 
 ### Amazon RDS – MySQL
 
-The project uses Amazon RDS with MySQL to store information about uploaded notes.
+Amazon RDS for MySQL is used to store the metadata associated with uploaded notes.
 
 Database configuration:
 
 | Setting | Value |
 |---|---|
-| DB instance identifier | `campus-notes-db` |
-| Engine | MySQL |
+| DB Instance Identifier | `campus-notes-db` |
+| Database Engine | MySQL |
 | Port | `3306` |
-| Database name | `campus_notes` |
-| Application database user | `notes_app` |
+| Database Name | `campus_notes` |
+| Application User | `notes_app` |
+| Region | `eu-north-1` |
 
-The application database user should have only the privileges required to work with the application's database and tables.
+The application connects to RDS through the configured database endpoint.
 
-The `notes` table stores information about uploaded files, including:
+A separate application database user, `notes_app`, is used instead of relying on the database master account.
 
-- `id`
-- `title`
-- `course_name`
-- `description`
-- `s3_object_key`
-- `created_at`
+The application database user should have only the privileges required by the application.
 
-The PDF files themselves are stored in S3. The database stores their metadata and the corresponding S3 object keys.
+### Notes Table
+
+The `notes` table stores the metadata associated with uploaded PDF documents.
+
+The expected fields include:
+
+| Column | Purpose |
+|---|---|
+| `id` | Unique identifier for each note |
+| `title` | Title of the uploaded note |
+| `course_name` | Related course name |
+| `description` | Description of the note |
+| `s3_object_key` | Location key of the PDF object in S3 |
+| `created_at` | Date and time the note was created |
+
+The actual table structure should match the application's database schema.
 
 ### Amazon S3
 
-The project uses an S3 bucket to store uploaded PDF documents.
+Amazon S3 is used to store the PDF documents uploaded through Campus Notes Board.
 
-The bucket should have the following security settings:
+The bucket is configured to keep the uploaded documents private.
+
+The intended security settings include:
 
 - Block Public Access enabled.
-- Object Ownership set to Bucket owner enforced, if this is the setting used in the deployment.
+- Bucket ownership configured to prevent public or external ownership issues.
 - Server-side encryption enabled using SSE-S3.
 - No public bucket policy or public object permissions.
-- PDF objects stored under the `notes/` prefix.
+- Uploaded documents organized under the `notes/` prefix.
 
-The application accesses the bucket through the EC2 instance's IAM role rather than through hardcoded AWS access keys.
+The database stores the S3 object key associated with each note, while the actual PDF file is stored in the S3 bucket.
+
+The application accesses S3 through the IAM role attached to the EC2 instance.
 
 ## 6. Security
 
-### Security groups
+Security is implemented through network restrictions, IAM permissions, private database access, and secure storage configuration.
 
-**`app-sg` – Application security group**
+### Security Groups
 
-Controls traffic reaching the EC2 application instance.
+**`app-sg` – Application Security Group**
 
-Document the actual inbound rules configured in your AWS console. The intended setup allows web traffic from the appropriate client network and permits the administration method used for the instance.
+Controls traffic to and from the EC2 application instance.
 
-**`db-sg` – Database security group**
+It allows the required application traffic and the configured administration method.
 
-Controls access to the RDS database.
+**`db-sg` – Database Security Group**
 
-The intended MySQL inbound rule is:
+Restricts access to the RDS database.
+
+The intended inbound MySQL rule is:
 
 | Type | Protocol | Port | Source |
 |---|---|---|---|
-| MySQL/Aurora | TCP | `3306` | `app-sg` |
+| MySQL/Aurora | TCP | 3306 | `app-sg` |
 
-The database should not accept direct public internet connections. Only the application instance should be allowed to connect through the configured security-group relationship.
+This ensures that the database accepts connections from the application security group rather than unrestricted public sources.
 
-### IAM instance role
+### IAM Instance Role
 
 The EC2 instance uses the IAM role:
 
 `notes-ec2-role`
 
-The role allows the application to obtain temporary AWS credentials through the EC2 instance metadata service.
+The role provides temporary AWS credentials to the EC2 instance through its instance profile.
 
-This avoids storing permanent AWS access keys on the EC2 instance.
+This allows the application to communicate with AWS services without storing permanent access keys on the server.
 
-The role should include:
+The role includes the required permissions for:
 
-- `AmazonSSMManagedInstanceCore` for Systems Manager access, if Session Manager is used.
-- A project-specific S3 policy granting only the permissions required by the application.
+- AWS Systems Manager access, through `AmazonSSMManagedInstanceCore`, if Session Manager is used.
+- Application access to the required S3 bucket and objects.
 
-### S3 permissions
+### S3 IAM Policy
 
-The application-specific policy should contain the following permissions:
+The application-specific IAM policy should grant only the permissions required by the application.
 
-| Action | Resource | Purpose |
+| IAM Action | Resource | Purpose |
 |---|---|---|
-| `s3:ListBucket` | Bucket ARN | List objects in the bucket, if required by the application |
-| `s3:PutObject` | `bucket/notes/*` | Upload PDF files |
-| `s3:GetObject` | `bucket/notes/*` | Download PDF files |
+| `s3:ListBucket` | S3 bucket ARN | Allows listing bucket objects when required |
+| `s3:PutObject` | `bucket/notes/*` | Allows uploading PDF documents |
+| `s3:GetObject` | `bucket/notes/*` | Allows downloading PDF documents |
 
-The resource ARN must use the actual bucket name.
+The policy should use the actual S3 bucket ARN.
 
-These permissions follow the principle of least privilege: the application receives access only to the S3 resources and operations it needs.
+This follows the principle of least privilege by restricting access to the required bucket and object prefix.
+
+### Additional Security Measures
+
+- RDS is not intended to be publicly accessible.
+- S3 Block Public Access is enabled.
+- Database credentials are stored outside the Git repository.
+- The EC2 instance uses an IAM role rather than hardcoded AWS access keys.
+- Security groups restrict communication between the application and database.
+- CloudTrail provides an audit history of supported AWS management events.
 
 ## 7. Evidence
 
-The following screenshots should be included in the repository to demonstrate the deployment and testing process.
+Screenshots documenting the project implementation, AWS infrastructure configuration, deployment process, security settings, monitoring, and testing are available in the repository's `screenshots/` directory.
 
-| Evidence | Screenshot |
-|---|---|
-| AWS architecture diagram | `screenshots/architecture.png` |
-| VPC and subnet configuration | `screenshots/vpc-subnets.png` |
-| Route table configuration | `screenshots/route-tables.png` |
-| EC2 instance running | `screenshots/ec2-running.png` |
-| RDS configuration | `screenshots/rds-configuration.png` |
-| S3 bucket security settings | `screenshots/s3-security.png` |
-| IAM role and policy | `screenshots/iam-role-policy.png` |
-| Successful application health check | `screenshots/health-check.png` |
-| Successful PDF upload | `screenshots/pdf-upload.png` |
-| Database record after upload | `screenshots/database-record.png` |
-| PDF object in S3 | `screenshots/s3-object.png` |
-| Successful PDF download | `screenshots/pdf-download.png` |
-| Direct S3 URL returning HTTP 403 | `screenshots/s3-private-access.png` |
-| CloudWatch alarm triggered | `screenshots/cloudwatch-alarm.png` |
-| CloudTrail management event | `screenshots/cloudtrail-event.png` |
-| Troubleshooting and recovery | `screenshots/troubleshooting.png` |
+The screenshots provide visual evidence of the following:
 
-Only include screenshots of tests and configurations that you have actually completed.
+- VPC, subnet, and route table configurations.
+- EC2 instance configuration and deployment.
+- Amazon RDS database configuration.
+- Amazon S3 bucket settings and uploaded PDF objects.
+- IAM roles, policies, and permissions.
+- Application health checks and end-to-end functionality.
+- PDF upload and download operations.
+- S3 private-access verification.
+- CloudWatch monitoring and alarm configuration.
+- CloudTrail management events.
+- Troubleshooting exercises and recovery.
+- AWS Pricing Calculator cost estimate.
 
-## 8. Known limitations, cost and cleanup
+All supporting screenshots can be found in the [`screenshots/`](screenshots/) directory.
 
-### Known limitations
 
-Document the limitations that apply to the deployed application. Review the starter project's `app/README.md` and retain the relevant limitations.
+## 8. Known Limitations, Cost and Cleanup
 
-Possible areas to discuss, if they apply to your implementation:
+### Known Limitations
 
-- The application is intended for a limited student/project environment rather than large-scale production traffic.
-- The application accepts PDF documents rather than arbitrary file types.
+Campus Notes Board is designed as a student project and learning application.
+
+Its limitations depend on the features implemented in the starter application.
+
+Potential limitations to document where applicable include:
+
+- The application is designed for a limited project environment rather than large-scale production traffic.
+- The application supports PDF documents rather than arbitrary file types.
 - The application depends on the availability of its EC2 instance, RDS database, and S3 bucket.
 - The deployment uses HTTP unless HTTPS has been separately configured.
-- Authentication and authorization features should be documented according to what the application actually implements.
+- Authentication, authorization, and file access restrictions depend on the features actually implemented in the application.
 
-### Cost considerations
+### AWS Cost Estimation
 
-The project uses AWS resources that may incur charges, including:
+The estimated infrastructure cost was calculated using the **AWS Pricing Calculator** for the Europe (Stockholm) Region (`eu-north-1`).
 
-- EC2 instance runtime.
-- Amazon RDS instance runtime and storage.
-- Amazon S3 storage and requests.
-- Data transfer.
-- CloudWatch monitoring and logs, where applicable.
+The estimate assumes the following configuration:
 
-The project environment provided a $100 credit allowance. This is a credit allocation, not proof that the deployment cost nothing.
+| AWS Service | Configuration | Monthly Estimate |
+|---|---|---:|
+| Amazon EC2 | 1 Linux `t3.micro` instance, On-Demand, 730 hours/month | $7.88 |
+| Amazon EBS | 1 gp3 volume, 30 GB, including configured snapshot assumptions | $8.20 |
+| Amazon RDS for MySQL | 1 `db.t4g.micro` instance, 20 GB gp3 storage, Single-AZ, 730 hours/month | $14.08 |
+| Amazon S3 | 1 GB Standard storage, 1,000 write/list requests, 5,000 read/other requests | $0.03 |
+| Amazon CloudWatch | Configured monitoring assumptions and 1 standard-resolution alarm metric | $0.10 |
+| Amazon VPC | 1 in-use public IPv4 address | $3.65 |
+| **Total** | | **$33.94** |
 
-| Cost item | Estimated monthly cost | Actual cost |
-|---|---:|---:|
-| Amazon EC2 | To be calculated | To be verified |
-| Amazon RDS | To be calculated | To be verified |
-| Amazon S3 | To be calculated | To be verified |
-| CloudWatch and other services | To be calculated | To be verified |
-| **Total** | **To be calculated** | **To be verified** |
+**Estimated Costs Summary**
 
-Use AWS Pricing Calculator for the estimate and the available billing or project-credit dashboard to verify actual charges. Do not report an estimated amount as actual spending.
+| Cost Type | Amount |
+|---|---:|
+| Upfront Cost | $0.00 |
+| Monthly Cost | $33.94 |
+| Total 12-Month Cost | $407.28 |
+
+The EBS estimate includes the snapshot configuration specified in the calculator: two snapshots per day and 3 GB changed per snapshot.
+
+The project environment provided a $100 AWS credit allowance. This credit allocation is separate from the estimated infrastructure cost.
+
+The AWS Pricing Calculator provides an estimate rather than an actual billing statement. Actual charges may vary depending on resource usage, storage consumption, snapshots, data transfer, requests, taxes, and how long the resources remain active.
+
+The estimated monthly cost assumes that the EC2 and RDS instances run for 730 hours per month. Actual charges may be lower if resources are stopped or deleted when they are not needed. Storage and other applicable charges may still apply.
 
 ### Cleanup
 
-After completing the project demonstration and saving all required evidence:
+After completing the project assessment and saving all required documentation and evidence, unused AWS resources should be removed to avoid unnecessary charges.
+
+The cleanup process includes:
 
 1. Stop or terminate the EC2 instance when it is no longer required.
-2. Delete the RDS database after confirming that its data is no longer needed.
+2. Back up any required database information and delete the RDS instance when it is safe to do so.
 3. Empty the S3 bucket before deleting it.
-4. Delete unused security groups, route tables, subnets, and the VPC after checking their dependencies.
+4. Remove unused security groups, subnets, route tables, and the VPC after checking their dependencies.
 5. Detach and delete unused IAM policies and roles.
 6. Remove unused CloudWatch alarms and log groups.
-7. Confirm that no billable resources remain active.
+7. Verify that no unnecessary billable AWS resources remain active.
 
-**Important:** Do not delete resources before the assessment or demonstration if you still need them. Save screenshots and documentation before cleanup.
+**Important:** Do not delete project resources before the assessment or demonstration if they are still required. Save all screenshots and documentation before performing cleanup.
 
 ---
 
-## Project repository
+## Project Repository
 
-GitHub: `YOUR_GITHUB_REPOSITORY_URL`
-
+GitHub: https://github.com/AWS-SBG-Cloud-and-Devops-Track-AASTU/campus-notes-board
